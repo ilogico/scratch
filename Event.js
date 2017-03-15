@@ -36,6 +36,26 @@ class Observable {
         });
     }
 
+    skip(n) {
+        return new Observable(observer => {
+            let i = 0;
+
+            let unsubscribe = null;
+            const subscription = this.subscribe(override(observer, {
+                next: value => {
+                    if (i++ >= n) {
+                        unsubscribe();
+                        unsubscribe = this.subscribe(observer).unsubscribe;
+                    }
+                }
+            }));
+
+            unsubscribe = subscription.unsubscribe;
+            return override(subscription, { unsubscribe() { unsubscribe(); } });
+
+        });
+    }
+
     scan(initial, merge) {
         return new Observable(observer => this.subscribe(override(observer, { next: value => observer.next(merge(initial, value)) })));
     }
@@ -90,6 +110,12 @@ const override = (receiver, replacements) => Object.assign({}, receiver, replace
 
 const timer = milliseconds => new Event(dispatch => setInterval(dispatch, milliseconds));
 
-const x = timer(1000).select(() => Math.random()).take(5).toEvent();
+
+let i = 0;
+/*const x = timer(1000).select(() => i++).take(5).toEvent();
 x.forEach(v => console.log(v));
-x.forEach(v => console.log(`replay: ${v}`));
+x.forEach(v => console.log(`replay: ${v}`));*/
+
+
+timer(2000).select(() => i++).skip(5).take(5).toEvent().forEach(v => console.log(v));
+
