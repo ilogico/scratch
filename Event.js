@@ -33,6 +33,26 @@ class Observable {
                     }
                 }
             }));
+            return subscription;
+        });
+    }
+
+    skip(n) {
+        return new Observable(observer => {
+            let i = 0;
+            let unsubscribe = null;
+            const subscription = this.subscribe(override(observer, {
+                next: value => {
+                    if (++i > n) {
+                        unsubscribe();
+                        unsubscribe = this.subscribe(observer).unsubscribe;
+                        observer.next(value);
+                    }
+                }
+            }));
+
+            unsubscribe = subscription.unsubscribe;
+            return override(subscription, { unsubscribe: () => unsubscribe() });
         });
     }
 
@@ -70,26 +90,70 @@ class Observable {
 
 class Event extends Observable {
     constructor(init) {
+        const subscribers = new Set();
+
         super(observer => {
-            this.subscribers.add(observer);
-            return { unsubscribe: () => this.subscribers.delete(observer) };
+            subscribers.add(observer);
+            return { unsubscribe: () => subscribers.delete(observer) };
         });
-        this.subscribers = new Set();
+
         init(arg => {
-            const p = Promise.resolve(arg);
-            for (const { next } of this.subscribers.values()) {
-                p.then(next);
+            for (const { next } of [...subscribers]) {
+                next(arg);
             }
         })
     }
-
-
 }
 
-const override = (receiver, replacements) => Object.assign({}, receiver, replacements);
+const coldObservable = (start, stop) => {
+    const subscribers = new Set();
+    const dispatcher = (method, value) => [...subscribers].filter(s => method in s).forEach(s => s[method](value));
+    return new Observable(observer => {
+        const wasEmpty = subscribers.size === 0;
+        subscribers.add(observer);
+        if (wasEmpty && subscribers.size > 0) {
+            start(dispatcher);
+        }
+        return {
+            unsubscribe() {
+                const wasEmpty = subscribers.size === 0;
+                subscribers.delete(observer);
+                if (!wasEmpty && subscribers.size === 0) {
+                    stop();
+                }
+            }
+        };
 
-const timer = milliseconds => new Event(dispatch => setInterval(dispatch, milliseconds));
+    });
 
-const x = timer(1000).select(() => Math.random()).take(5).toEvent();
-x.forEach(v => console.log(v));
-x.forEach(v => console.log(`replay: ${v}`));
+};
+
+
+const override = (receiver, replacements) => {
+    const result = {};
+    for (const method of Object.keys(receiver)) {
+        result[method] = (method in replacements ? replacements : receiver)[method];
+    }
+    return result;
+};
+
+const interval = milliseconds => {
+    let timer = null;
+    return coldObservable(
+        dispatcher => timer = setInterval(() => dispatcher('next'), milliseconds),
+        () => {
+            clearInterval(timer);
+            timer = null;
+        }
+    );
+}
+
+interval(500).select(o => o).catch(e => {}).then(() => {})
+
+let i = 0;
+const t = interval(1000)
+    .select(() => i++)
+    .skip(5)
+    .take(5)
+    .forEach(console.log)
+    .then(() => console.log("Finished!!"));
