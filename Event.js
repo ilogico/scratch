@@ -76,10 +76,6 @@ class Observable {
         });
     }
 
-    scan(initial, merge) {
-        return new Observable(observer => this.subscribe(override(observer, { next: value => observer.next(merge(initial, value)) })));
-    }
-
     forEach(action) {
         return new Promise((accept, reject) => this.subscribe({
             next: action,
@@ -106,6 +102,17 @@ class Observable {
     toEvent() {
         return new Event(dispatch => this.subscribe({ next: dispatch }));
     }
+
+    static merge(...observables) {
+        return new Observable(observer => {
+            const subscriptions = observables.map(o => o.subscribe(observer));
+            return {
+                unsubscribe() {
+                    subscriptions.forEach(s => s.unsubscribe());
+                }
+            };
+        });
+    }
 }
 
 class Event extends Observable {
@@ -125,6 +132,19 @@ class Event extends Observable {
     }
 }
 
+const hotObservable = init => {
+    const subscribers = new Set();
+    const dispatcher = (method, value) => [...subscribers].filter(s => method in s).forEach(s => s[method](value));
+    init(dispatcher);
+    return new Observable(subscriber => {
+        subscribers.add(observer);
+        return {
+            unsubscribe() {
+                subscribers.delete(observer);
+            }
+        };
+    });
+}
 const coldObservable = (start, stop) => {
     const subscribers = new Set();
     const dispatcher = (method, value) => [...subscribers].filter(s => method in s).forEach(s => s[method](value));
@@ -143,10 +163,9 @@ const coldObservable = (start, stop) => {
                 }
             }
         };
-
     });
-
 };
+
 
 
 const override = (receiver, replacements) => {
