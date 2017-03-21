@@ -51,24 +51,35 @@ const map = routes => {
     };
 };
 
+const noop = () => { };
+const end = executioner => routingInfo => async () => {
+    try {
+        return await executioner(routingInfo);
+    } catch (error) {
+        return {
+            status: 500,
+            data: error
+        };
+    }
+}
 
+const render = (component, data = {}) => ({ status: 200, component, data });
 
-
-
-function main() {
+async function main() {
     let router = map({
-        '/cenas/ultras': () => console.log('ultras!'),
+        '/cenas/ultras': end(() => render('ultras!')),
         '/coiso': map({
-            '/etal': () => { console.log('coiso e tal!'); return 42; },
-            '/{id}': ({ pathParams: { id } }) => console.log(`coiso with id ${id}`)
+            '/etal': end(() => render('coiso e tal!')),
+            '/{id}': end(({ pathParams: { id } }) => render('coiso', { message: `coiso with id ${id}` }))
         })
     });
 
-    router({ path: '/coiso', pathParams: {} });
-    router({ path: '/coiso/etal', pathParams: {} });
-    router({ path: '/cenas/ultras', pathParams: {} });
-    router({ path: '/coiso/78', pathParams: {} });
-    router({ path: '/desconhecido', pathParams: {} });
+    const testArray = ['/coiso', '/coiso/etal', '/cenas/ultras', '/coiso/78', '/desconhecido'];
+
+    for (const url of testArray) {
+        const action = router({ path: url, pathParams: {}, prefix: '' });
+        console.log(action && await action());
+    }
 };
 
 main();
