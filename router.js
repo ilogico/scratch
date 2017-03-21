@@ -1,22 +1,6 @@
 'use strict';
 
-const makeRoute = (pattern, handler) => {
-    const { regex, parameters } = makeRegex(pattern);
-    return path => {
-        const result = regex.exec(path);
-        if (result) {
-            return handler({
-                path,
-                subRoute: path.slice(result[0].length),
-                prefix: result[0],
-                parameters: parameters.reduce((obj, name, idx) => {
-                    obj[name] = result[idx + 1];
-                    return obj;
-                }, {})
-            });
-        }
-    };
-};
+const clone = (object, overrides) => Object.assign({}, object, overrides);
 
 const makeRegex = pattern => {
     const chunks = pattern
@@ -29,18 +13,18 @@ const makeRegex = pattern => {
             };
         });
     return {
-        regex: new RegExp(chunks.map(c => c.regexPart).join('/')),
+        regex: new RegExp('^' + chunks.map(c => c.regexPart).join('/')),
         parameters: chunks.map(c => c.parameter).filter(p => p !== null)
     };
 
 };
 
 const map = routes => {
-    const options = routes.map(({ path, action }) => {
-        const { regex, parameters } = makeRegex(path);
+    const alternatives = Object.entries(routes).map(([pattern, action]) => {
+        const { regex, parameters } = makeRegex(pattern);
         return routingInfo => {
-            const { subPath, pathParams, prefix } = routingInfo;
-            const r = regex.exec(subPath);
+            const { path, pathParams, prefix } = routingInfo;
+            const r = regex.exec(path);
             if (r) {
                 return action(clone(routingInfo, {
                     pathParams: clone(pathParams, parameters.reduce((paramObj, param, idx) => {
@@ -48,7 +32,7 @@ const map = routes => {
                         return paramObj;
                     }, {})),
                     prefix: prefix + r[0],
-                    subPath: subPath.slice(r[0].length)
+                    path: path.slice(r[0].length)
                 }));
             } else {
                 return null;
@@ -57,8 +41,8 @@ const map = routes => {
     });
 
     return routingInfo => {
-        for (const option of options) {
-            const result = option(routingInfo);
+        for (const alternative of alternatives) {
+            const result = alternative(routingInfo);
             if (result) {
                 return result;
             }
@@ -67,51 +51,24 @@ const map = routes => {
     };
 };
 
-module.exports = {
-    makeRegex,
-    makeRoute
-};
 
-const deepClone = object => typeof object !== 'object'
-    ? object
-    : Array.isArray(object)
-        ? object.slice()
-        : Object.keys(object)
-            .reduce((result, key) => {
-                result[key] = deepClone(object[key]);
-                return result;
-            }, Object.create(Object.getPrototypeOf(object)));
-
-const clone = (object, overrides) => Object.assign({}, object, overrides);
 
 
 
 function main() {
-    let router = map([
-        {
-            path: '/cenas/ultras',
-            action: () => console.log('ultras!')
-        },
-         {
-             path: '/coiso',
-             action: map([
-                 {
-                     path: 'etal',
-                     action: () => (console.log('coiso e tal!'), 42)
-                 },
-                 {
-                     path: '{id}',
-                     action: ({pathParams: {id}}) => console.log(`coiso with id ${id}`)
-                 }
-             ])
-         }
-    ]);
+    let router = map({
+        '/cenas/ultras': () => console.log('ultras!'),
+        '/coiso': map({
+            '/etal': () => { console.log('coiso e tal!'); return 42; },
+            '/{id}': ({ pathParams: { id } }) => console.log(`coiso with id ${id}`)
+        })
+    });
 
-    router({subPath: '/coiso', pathParams: {}});
-    router({subPath: '/coiso/etal', pathParams: {}});
-    router({subPath: '/cenas/ultras', pathParams: {}});
-    router({subPath: '/coiso/78', pathParams: {}});
-    router({subPath: '/desconhecido', pathParams: {}});
+    router({ path: '/coiso', pathParams: {} });
+    router({ path: '/coiso/etal', pathParams: {} });
+    router({ path: '/cenas/ultras', pathParams: {} });
+    router({ path: '/coiso/78', pathParams: {} });
+    router({ path: '/desconhecido', pathParams: {} });
 };
 
 main();
