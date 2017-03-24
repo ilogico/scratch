@@ -19,13 +19,6 @@ const testPath = (regex, path, parameters) => {
         }, {})
     };
 }
-const use = (pattern, provider, continuation) => {
-    const { regex, parameters } = parsePattern(pattern);
-    return context => {
-        const r = regex.exec(regex, context.path, parameters);
-        return r ? provider(context, r.parameters, continuation) : continuation(context);
-    };
-};
 
 const clone = (source, overrides) => Object.assign({}, source, overrides);
 
@@ -37,9 +30,18 @@ const map = routes => {
             return r
                 ? action(clone(context, {
                     prefix: context.prefix + r.matched,
-                    path: context.path.slice(r.matched.length)
-                }), r.parameters)
+                    path: context.path.slice(r.matched.length),
+                    pathParams: clone(context.pathParams, r.parameters)
+                }))
                 : continuation(context);
         };
     }, () => null);
 };
+
+const main = async () => {
+    const route = map({
+        '/': 2
+    });
+};
+
+main();
