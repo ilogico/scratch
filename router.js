@@ -22,11 +22,11 @@ const makeRegex = pattern => {
 const map = routes => {
     const alternatives = Object.entries(routes).map(([pattern, action]) => {
         const { regex, parameters } = makeRegex(pattern);
-        return routingInfo => {
-            const { path, pathParams, prefix } = routingInfo;
+        return routingData => {
+            const { path, pathParams, prefix } = routingData;
             const r = regex.exec(path);
             if (r) {
-                return action(clone(routingInfo, {
+                return action(clone(routingData, {
                     pathParams: clone(pathParams, parameters.reduce((paramObj, param, idx) => {
                         paramObj[param] = r[idx + 1];
                         return paramObj;
@@ -51,10 +51,23 @@ const map = routes => {
     };
 };
 
+const use = (pattern, provider, continuation) => {
+    const { regex, parameters } = makeRegex(pattern);
+    return routingInfo => {
+        let action = continuation(routingInfo);
+        let r;
+        if (action && (r = regex.exec(routingInfo.path))) {
+            return async middlewareData => action(await provider(middlewareData));
+        } else {
+            return action;
+        }
+    };
+};
+
 const noop = () => { };
-const end = executioner => routingInfo => async () => {
+const action = renderer => routingData => async middlewareData => {
     try {
-        return await executioner(routingInfo);
+        return await renderer(routingData, middlewareData);
     } catch (error) {
         return {
             status: 500,
@@ -66,13 +79,14 @@ const end = executioner => routingInfo => async () => {
 const render = (component, data = {}) => ({ status: 200, component, data });
 
 async function main() {
-    let router = map({
-        '/cenas/ultras': end(() => render('ultras!')),
-        '/coiso': map({
-            '/etal': end(() => render('coiso e tal!')),
-            '/{id}': end(({ pathParams: { id } }) => render('coiso', { message: `coiso with id ${id}` }))
-        })
-    });
+    let router = use(
+        '/', data => clone(data, { x: 42 }), map({
+            '/cenas/ultras': action(() => render('ultras!')),
+            '/coiso': map({
+                '/etal': action((routing, data) => render('coiso e tal!', data)),
+                '/{id}': action(({ pathParams: { id } }) => render('coiso', { message: `coiso with id ${id}` }))
+            })
+        }));
 
     const testArray = ['/coiso', '/coiso/etal', '/cenas/ultras', '/coiso/78', '/desconhecido'];
 
