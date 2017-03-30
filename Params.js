@@ -46,4 +46,8 @@ class Params {
             yield value;
         }
     }
+
+    get [Symbol.iterator]() {
+        return this.entries;
+    }
 }
