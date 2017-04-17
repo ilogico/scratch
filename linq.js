@@ -1,8 +1,17 @@
 'use strict';
 const pair = (first, second) => [first, second];
+const identity = value => value;
 class Enumerable {
     constructor(iterator) {
         this[Symbol.iterator] = iterator;
+    }
+
+    append(element) {
+        const self = this;
+        return new Enumerable(function* () {
+            yield* self;
+            yield element;
+        });
     }
 
     concat(other) {
@@ -68,7 +77,7 @@ class Enumerable {
         return new Enumerable(function* () {
             let i = count, done, value;
             const iterator = self[Symbol.iterator]();
-            while (i > 0 && ({done, value} = iterator.next(), !done)) {
+            while (i > 0 && ({ done, value } = iterator.next(), !done)) {
                 yield value;
             }
         });
@@ -79,7 +88,7 @@ class Enumerable {
         return new Enumerable(function* () {
             let i = 0, done, value;
             const iterator = self[Symbol.iterator]();
-            while ({done, value} = iterator.next(), !done && predicate(value, i++)) {
+            while ({ done, value } = iterator.next(), !done && predicate(value, i++)) {
                 yield value;
             }
         });
@@ -103,11 +112,70 @@ class Enumerable {
             const iterator = other[Symbol.iterator]();
             let idx = 0, value, done;
             for (const firstValue of self) {
-                if ({done, value} = iterator.next(), !done) {
+                if ({ done, value } = iterator.next(), !done) {
                     yield selector(first, value, idx++);
                 } else {
                     return;
                 }
+            }
+        });
+    }
+
+    distinct(comparer = undefined) {
+        const self = this;
+        return new Enumerable(comparer
+            ? function* () {
+                const array = [];
+                let i = 0;
+                for (const value of self) {
+                    if (array.findIndex(v => comparer(v, value)) < 0) {
+                        yield value;
+                        array.push(value);
+                    }
+                }
+            }
+            : function* () {
+                const set = new Set();
+                for (const value of self) {
+                    if (!set.has(value)) {
+                        yield value;
+                        set.add(value);
+                    }
+                }
+            });
+    }
+
+    except(other, comparer = undefined) {
+        const self = this;
+        return new Enumerable(comparer
+            ? function* () {
+                const array = [...other];
+                yield* self.where(value => array.findIndex(v => comparer(v, value)) < 0);
+            }
+            : function* () {
+                const set = new Set(other);
+                yield* self.where(value => !set.has(value));
+            });
+    }
+
+    groupBy(keySelector, elementSelector = identity, resultSelector = pair) {
+        const self = this;
+        return new Enumerable(function* () {
+            const map = new Map();
+            let i = 0;
+            for (const value of self) {
+                const key = keySelector(value, i);
+                let array;
+                if (map.has(key)) {
+                    array = map.get(array);
+                } else {
+                    array = [];
+                    map.set(key, array);
+                }
+                array.push(elementSelector(value, i++));
+            }
+            for (const [key, value] of map) {
+                yield resultSelector(key, self.constructor.from(value));
             }
         });
     }
@@ -125,4 +193,10 @@ class Enumerable {
             }
         });
     }
+
+    static empty() {
+        return Empty;
+    }
 }
+
+const Empty = Enumerable.from([]);
