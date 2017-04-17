@@ -131,10 +131,15 @@ class Event extends Observable {
         })
     }
 }
+const makeDispatcher = methodBuilder => ({
+    next: methodBuilder('next'),
+    complete: methodBuilder('complete'),
+    error: methodBuilder('error')
+});
 
 const hotObservable = init => {
     const subscribers = new Set();
-    const dispatcher = (method, value) => [...subscribers].filter(s => method in s).forEach(s => s[method](value));
+    const dispatcher = makeDispatcher(method => value => [...subscribers].filter(s => method in s).forEach(s => s[method](value)));
     init(dispatcher);
     return new Observable(subscriber => {
         subscribers.add(observer);
@@ -147,7 +152,7 @@ const hotObservable = init => {
 }
 const coldObservable = (start, stop) => {
     const subscribers = new Set();
-    const dispatcher = (method, value) => [...subscribers].filter(s => method in s).forEach(s => s[method](value));
+    const dispatcher = makeDispatcher(method => value => [...subscribers].filter(s => method in s).forEach(s => s[method](value)));
     return new Observable(observer => {
         const wasEmpty = subscribers.size === 0;
         subscribers.add(observer);
@@ -179,7 +184,7 @@ const override = (receiver, replacements) => {
 const interval = milliseconds => {
     let timer = null;
     return coldObservable(
-        dispatcher => timer = setInterval(() => dispatcher('next'), milliseconds),
+        dispatcher => timer = setInterval(dispatcher.next, milliseconds),
         () => {
             clearInterval(timer);
             timer = null;
