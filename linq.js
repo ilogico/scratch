@@ -367,7 +367,11 @@ class Enumerable {
 
 
     static from(iterable) {
-        return new Enumerable(() => iterable[Symbol.iterator]());
+        return new this(() => iterable[Symbol.iterator]());
+    }
+
+    static of(...args) {
+        return this.from(args);
     }
 
     static range(start, end) {
@@ -415,3 +419,11 @@ class OrderedEnumerable extends Enumerable {
 }
 
 const Empty = Enumerable.from([]);
+
+if (typeof define === 'function') {
+    define(() => Enumerable);
+} else if (typeof module === 'object' && module.exports) {
+    module.exports = Enumerable
+} else {
+    window.Enumerable = Enumerable;
+}
