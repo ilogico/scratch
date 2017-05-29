@@ -56,24 +56,17 @@ class Observable {
         });
     }
 
-    skip(n) {
-        return new Observable(observer => {
-            let i = 0;
 
-            let unsubscribe = null;
-            const subscription = this.subscribe(override(observer, {
-                next: value => {
-                    if (i++ >= n) {
-                        unsubscribe();
-                        unsubscribe = this.subscribe(observer).unsubscribe;
-                    }
+    append(value) {
+        new Observable(observer => {
+            this.subscribe(override(observer, {
+                complete() {
+                    observer.next(value);
+                    observer.complete();
                 }
             }));
-
-            unsubscribe = subscription.unsubscribe;
-            return override(subscription, { unsubscribe() { unsubscribe(); } });
-
         });
+
     }
 
     forEach(action) {
@@ -142,10 +135,10 @@ const hotObservable = init => {
     const dispatcher = makeDispatcher(method => value => [...subscribers].filter(s => method in s).forEach(s => s[method](value)));
     init(dispatcher);
     return new Observable(subscriber => {
-        subscribers.add(observer);
+        subscribers.add(subscriber);
         return {
             unsubscribe() {
-                subscribers.delete(observer);
+                subscribers.delete(subscriber);
             }
         };
     });
