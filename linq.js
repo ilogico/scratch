@@ -217,8 +217,7 @@ class Enumerable {
     selectMany(selector, resultSelector = undefined) {
         const target = resultSelector
             ? this.select(function* (item, idx) {
-                const collection = selector(item, idx);
-                for (const value of collection) {
+                for (const value of selector(item, idx)) {
                     yield resultSelector(item, value);
                 }
             })

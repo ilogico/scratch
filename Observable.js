@@ -1,208 +1,211 @@
-
-const override = (target, ...overrides) => Object.assign({}, target, ...overrides);
-const interceptNext = (observable, nextBuilder) => observable.next
-    ? override(observable, { next: nextBuilder(next) })
-    : observable;
-const interceptUnsubscribe = (subscription, unsubscribe) => Object.assign({}, subscription, {
-    unsubscribe() {
-        unsubscribe();
-        subscription.unsubscribe();
+// @ts-check
+class Observer {
+    constructor(handler) {
+        Object.assign(this, handler);
     }
-});
+
+    next() { }
+    complete() { }
+    error(error) {
+        throw error;
+    }
+
+    static override(observer, handler) {
+        return Object.assign(Object.create(this.prototype), observer, handler);
+    }
+}
+
+const canceled = Symbol();
+class Subscription {
+    constructor() {
+        this[canceled] = false;
+    }
+    cancel() {
+        this[canceled] = true;
+    }
+
+    get canceled() {
+        return this[canceled];
+    }
+}
+
+const replaceSubscription = Symbol();
+const currentSubscription = Symbol();
+class ReplacebleSubscription extends Subscription {
+    constructor(subscription = undefined) {
+        super();
+        this[currentSubscription] = subscription || new Subscription();
+    }
+
+    cancel() {
+        this[currentSubscription].cancel();
+    }
+
+    get canceled() {
+        return this[currentSubscription].canceled;
+    }
+
+    [replaceSubscription](subscription) {
+        this[currentSubscription] = subscription;
+    }
+}
+
+const subscriptionSet = Symbol();
+const addSubscription = Symbol();
+const removeSubscription = Symbol();
+const hasSubscribers = Symbol();
+class SubscriptionSet extends Subscription {
+    constructor(subscription) {
+        super();
+        this[subscriptionSet] = new Set([subscription]);
+    }
+
+    cancel() {
+        for (const subscription of this[subscriptionSet]) {
+            subscription.cancel();
+        }
+        super.cancel();
+    }
+
+    [addSubscription](subscription) {
+        this[subscriptionSet].add(subscription);
+    }
+
+    [removeSubscription](subscription) {
+        this[subscriptionSet].delete(subscription);
+    }
+
+    get [hasSubscribers]() {
+        return this[subscriptionSet].size > 0;
+    }
+}
+
+const override = (observer, build) => Observer.override(observer, build(observer));
+const identity = o => o;
 
 class Observable {
     constructor(subscribe) {
         this.subscribe = subscribe;
     }
 
-    select(selector) {
-        return new Observable(init =>
-            this.subscribe(subscription => interceptNext(init(subscription), next => data => next(selector(data))))
-        );
+    select(select) {
+        return new Observable(init => this.subscribe(subscription => override(init(subscription), ({ next }) => ({
+            next: data => next(select(data))
+        }))));
     }
 
-    where(predicate) {
-        return new Observable(init =>
-            this.subscribe(subscription => interceptNext(init(subscription), next => data => {
-                if (predicate(data)) {
+    where(test) {
+        return new Observable(init => this.subscribe(subscription => override(init(subscription), ({ next }) => ({
+            next: data => {
+                if (test(data)) {
                     next(data);
                 }
-            }))
-        );
+            }
+        }))));
     }
 
     append(element) {
-        return new Observable(init => {
-            let unsubscribed = false;
-            let observer = init(interceptUnsubscribe(subscription, () => unsubscribed = true));
-            this.subscribe(subscription => override(
-                observer,
-                {
-                    complete() {
-                        observer.next && observer.next(element);
-                        !unsubscribed && observer.complete && observer.complete();
-                    }
-                }
-            ));
-        });
+        return new Observable(init => this.subscribe(subscription => override(init(subscription), ({ next, complete }) => ({
+            complete: () => {
+                next(element);
+                subscription.canceled || complete();
+            }
+        }))));
     }
 
     prepend(element) {
         return new Observable(init => {
-            let unsubscribed = false;
-            let unsubscribe = () => unsubscribe = true;
-            const subscription = {
-                unsubscribe: () => unsubscribe()
-            }
+            const subscription = new ReplacebleSubscription();
             const observer = init(subscription);
-            observer.next && observer.next(element);
-            !unsubscribe && this.subscribe(subscription => {
-                unsubscribe = subscription.unsubscribe;
-                return observer;
-            });
+            observer.next(element);
+            if (!subscription.canceled) {
+                this.subscribe(sub => {
+                    subscription[replaceSubscription](sub);
+                    return observer;
+                });
+            }
         });
     }
 
     concat(other) {
-        return new Observable(init => {
-            let unsubscribed = false;
-            
-            let subscription = { unsubscribe: () => unsubscribe() };
-            const observer = init(subscription);
-            if (unsubscribed) {
-                return;
-            }
-            this.subscribe(subscription => {
-                let unsubscribe = subscription.unsubscribe;
-                const observer = init(override(subscription, { unsubscribe: () => unsubscribe() }));
-                return override(observer, {
-                    complete() {
-                        other.subscribe(subscription => {
-                            unsubscribe = subscription.unsubscribe;
-                            return observer;
-                        });
-                    }
-                })
-
-            });
-        });
+        return new Observable(init => this.subscribe(first => {
+            const subscription = new ReplacebleSubscription(first);
+            override(init(subscription), _ => ({
+                complete() {
+                    other.subscribe(second => {
+                        subscription[replaceSubscription](second)
+                    });
+                }
+            }))
+        }));
     }
 
     selectMany(selector, resultSelector = undefined) {
         const target = resultSelector
-            ? this.select(source => selector(source).select(value => resultSelector(source, value)))
+            ? this.select(source => selector(source).select(element => resultSelector(source, element)))
             : this.select(selector);
-
-        return new Observable(init => {
-            const subscriptions = new Set();
-            const unsubscribe = () => {
-                for (const subscription of subscriptions) {
-                    subscription.unsubscribe();
+        return new Observable(init => target.subscribe(mainSubscription => {
+            const subscription = new SubscriptionSet(mainSubscription);
+            const observer = init(subscription);
+            const partialCompletion = sub => {
+                subscription[removeSubscription](subscription);
+                if (!subscription[hasSubscribers]) {
+                    observer.complete();
                 }
             };
-            const observer = init({ unsubscribe });
-            const removeSubscription = subscription => {
-                subscriptions.delete(subscription);
-                subscriptions.size === 0 && observer.complete && observer.complete();
-            };
-            target.subscribe(subscription => {
-                subscriptions.add(subscription);
-                return override(
-                    observer,
-                    {
-                        next(source) {
-                            source.subscribe(subscription => override(
-                                observer,
-                                { completete() { removeSubscription(subscription); } }
-                            ));
-                        },
-                        complete() { removeSubscription(subscription); }
+            return override(observer, _ => ({
+                next(source) {
+                    source.subscribe(sub => override(observer, _ => ({
+                        complete: partialCompletion(sub)
+                    })))
+                },
+                complete: () => partialCompletion(mainSubscription)
+            }));
+        }));
+    }
+
+    merge(other) {
+        return Observable.from([this, other]).selectMany(identity);
+    }
+
+    distinct(keySelector = identity) {
+        return new Observable(init => this.subscribe(subscription => {
+            const seen = new Set();
+            return override(init(subscription, ({ next }) => ({
+                next(element) {
+                    const key = keySelector(element);
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        next(element);
                     }
-                );
-            });
-        });
+                }
+            })))
+        }));
     }
 
-    skipWhile(predicate) {
+    union(other, keySelector = identity) {
+        return this.merge(other).distinct(keySelector);
+    }
+
+    
+
+    static from(enumerable) {
         return new Observable(init => {
-            this.subscribe(subscription => {
-                const observer = init(subscription);
-                if (!observer.next) {
-                    return observer;
-                }
-                let next = (data) => {
-                    if (!predicate(data)) {
-                        next = observer.next;
-                        next(data);
+            const subscription = new Subscription();
+            const observer = init(subscription);
+            const iterator = enumerable[Symbol.iterator]();
+            while (!subscription.canceled) {
+                try {
+                    const { done, value } = iterator.next();
+                    if (done) {
+                        observer.done();
+                    } else {
+                        observer.next(value);
                     }
-                };
-                return override(observer, { next: data => next(data) });
-            });
-
-        });
-    }
-
-    skip(count) {
-        return new Observable(init => {
-            let i = 0;
-            this.skipWhile(() => ++i < count).subscribe(init);
-        });
-    }
-
-    takeWhile(predicate) {
-        return new Observable(init => {
-            this.subscribe(subscription => {
-                const observer = init(subscription);
-                if (!observer.next) {
-                    return observer;
+                } catch (error) {
+                    observer.error(error);
                 }
-                return override(observer, {
-                    next() {
-                        if (predicate(value)) {
-                            next(value);
-                        } else {
-                            subscription.unsubscribe();
-                        }
-                    }
-                });
-            });
-        });
-    }
-
-    take(count) {
-        return new Observable(init => {
-            let i = 0;
-            this.takeWhile(() => ++i < count).subscribe(init);
-        });
-    }
-
-    distinct(keySelector = undefined) {
-        if (keySelector) {
-
-        } else {
-            
-        }
-    }
-}
-
-class Subscriptions {
-    constructor(observer) {
-        this.subscriptions = new Set();
-        this.unsubscribed = false;
-        this.subscription = {
-            unsubscribe: () => {
-                this.unsubscribed = true;
-                for (const subscription of [...this.subscriptions]) {
-                    subscription.unsubscribe();
-                }
-                this.subscriptions.clear();
-
             }
-        };
-    }
-
-    add(subscription) {
-        this.subscriptions.add(subscription);
-        return this.subscription;
+        });
     }
 }
