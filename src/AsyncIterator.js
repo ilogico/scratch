@@ -9,14 +9,13 @@ class Request {
     }
 }
 
-
 const requestQueue = Symbol();
 const readyQueue = Symbol();
 const isFinished = Symbol();
 const storedDoneValue = Symbol();
 const storedException = Symbol();
 const isErrored = Symbol();
-class AsyncIterator {
+export class AsyncIterator {
     constructor(controller) {
         this[requestQueue] = [];
         this[readyQueue] = [];

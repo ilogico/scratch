@@ -1,107 +1,8 @@
 'use strict';
-/**
- * Determines if a value should be included in a collection.
- * @callback Predicate
- * @param {any} value
- * @param {number} [index]
- * @returns {boolean}
- */
 
-/**
- * Function that uses a value, and possibly it's index in the containing collection to produce a new value.
- * @callback Selector
- * @param {Type} value
- * @param {number} [index]
- * @returns {Result}
- */
-
-/**
- * Used to map an item unfolded from a parent item.
- * @callback PairSelector
- * @param {any} parent
- * @param {any} item
- * @returns {any}
- */
-
-/**
- * Used to return a single value from two values and optionally and index.
- * When used to reduce a collection, the first value usually represents the result of the previous reductions and the second is the current item.
- * @callback Reducer
- * @param {any} first
- * @param {any} second
- * @param {any} [index]
- * @returns {any}
- */
-
-/**
- * Determines if two values should be considered equivalent.
- * @callback EqualityComparer
- * @param {any} a
- * @param {any} b
- * @returns {boolean}
- */
-
-/**
- * Determines the order of the two elements in a collection.
- * If the result is negative, the first element should come before the second one.
- * If the result is positive, the first element should come after the second one.
- * Otherwise, they have the same order.
- * @callback Comparer
- * @param {any} a
- * @param {any} b
- * @returns {number}
- */
-
-/**
- * Tries to get the next value of the iteration.
- * @callback Next
- * @returns {IterationResult}
- */
-
-/**
- * Returns an Iterator.
- * @callback GetIterator
- * @returns {Iterator}
- */
-
-/**
- * Represents the result of an iteration.
- * @typedef {Object} IterationResult
- * @interface
- * @property {any} [value]
- * @property {boolean} [done]
- */
-
-/**
- * Object that tracks the state of an iteration and allows access to its yielded values.
- * @typedef {Object} Iterator
- * @interface
- * @prop {Next} next
- */
-
-/**
- * Object that can be used in a for-of loop.
- * It must have a member [Symbol.iterator] that returns an Iterator.
- * @typedef {Object} Iterable
- * @interface
- * @prop {GetIterator} Symbol.iterator
- */
-
-/**
- * Returns [first, second].
- * Used as the default parameter for several methods.
- * @param {any} first 
- * @param {any} second
- * @returns {Array}
- */
+ 
 const pair = (first, second) => [first, second];
 
-/**
- * Returns the first parameter.
- * Used as the default parameter for several methods.
- * @param {any} value
- * @returns *
- */
 const identity = value => value;
 
 /**
@@ -116,11 +17,13 @@ class Enumerable {
      * The constructor is meant to be called internally or by sub-classes.
      * However it's reasonable to call it with a generator function, or any function that returns an iterator.
      * @protected
-     * @param {GetIterator} iterator 
+     * @param {function(): IterableIterator} iterator 
      */
     constructor(iterator) {
         this[Symbol.iterator] = iterator;
     }
+
+    *[Symbol.iterator]() {}
 
     /**
      * Returns a new Enumerable with the element appended.
@@ -152,28 +55,18 @@ class Enumerable {
      * Returns a new Enumerable without duplicates.
      * If an equality comparer is supplied, it will be used to determine if the elements are equal.
      * Otherwise, a Set will be used to track duplicates, which should be more efficient. Sets use Object.is for comparison.
-     * @param {EqualityComparer} [comparer]
+     * @param {function(any): any} [keySelector]
      * @returns {Enumerable}
      */
-    distinct(comparer = undefined) {
+    distinct(keySelector = identity) {
         const self = this;
-        return new Enumerable(comparer
-            ? function* () {
-                const array = [];
-                let i = 0;
-                for (const value of self) {
-                    if (array.findIndex(v => comparer(v, value)) < 0) {
-                        yield value;
-                        array.push(value);
-                    }
-                }
-            }
-            : function* () {
+        return new Enumerable(function* () {
                 const set = new Set();
                 for (const value of self) {
-                    if (!set.has(value)) {
+                    const key = keySelector(value);
+                    if (!set.has(key)) {
                         yield value;
-                        set.add(value);
+                        set.add(key);
                     }
                 }
             });
@@ -194,7 +87,7 @@ class Enumerable {
 
     /**
      * Returns a new Enumerable that yields all the elements of this Enumerable projected (ie. transformed) by the selector function.
-     * @param {Selector} selector
+     * @param {function(any, number): any} selector
      * @returns {Enumerable}
      */
     select(selector) {
@@ -210,8 +103,8 @@ class Enumerable {
     /**
      * Given a selector that returns an Iterable object, selectMany returns an Enumerable that maps the elements of this Enumerable using that selector and flattens the result.
      * The resultSelector can be used to map the resulting elements when knowledge of the originating item is required (which wouldn't be possible by chaining another select, for example).
-     * @param {Selector} selector 
-     * @param {PairSelector} resultSelector 
+     * @param {function(any, number): any} selector 
+     * @param {function(any, any): any} resultSelector 
      * @returns {Enumerable}
      */
     selectMany(selector, resultSelector = undefined) {
@@ -247,7 +140,7 @@ class Enumerable {
 
     /**
      * Returns a new Enumerable that skips elements while predicate returns true.
-     * @param {Predicate} predicate 
+     * @param {function(any, number): any} predicate 
      * @returns {Enumerable}
      */
     skipWhile(predicate) {
@@ -281,7 +174,7 @@ class Enumerable {
 
     /**
      * Returns a new Enumerable that yields the elements of this Enumerable until the predicate returns false.
-     * @param {Predicate} predicate
+     * @param {function(any, number): any} predicate
      * @returns {Enumerable}
      */
     takeWhile(predicate) {
@@ -298,7 +191,7 @@ class Enumerable {
     /**
      * This method is the equivalent of calling {@linkcode Enumerable#concat concat}(other).{@linkcode Enumerable#distinct distinct}(comparer)
      * @param {Iterable} other 
-     * @param {?EqualityComparer} comparer
+     * @param {function(any): any} comparer
      * @returns {Enumerable}
      */
     union(other, comparer = undefined) {
@@ -307,7 +200,7 @@ class Enumerable {
 
     /**
      * Returns a new Enumerable that only yields the elements approved by the predicate.
-     * @param {Predicate} predicate
+     * @param {function(any, number): any} predicate
      * @returns {Enumerable}
      */
     where(predicate) {
@@ -327,7 +220,7 @@ class Enumerable {
      * If no selector is provided, the elements will be combined in and array of two elements.
      * The length of the returning Enumerable will be the length of the smallest of the zipped enumerables.
      * @param {Iterable} other 
-     * @param {PairSelector} [selector=pair]
+      @param {function(any, any, number):} [selector=pair]
      * @returns {Enumerable}
      */
     zip(other, selector = pair) {
@@ -335,7 +228,7 @@ class Enumerable {
         return new Enumerable(function* () {
             const iterator = other[Symbol.iterator]();
             let idx = 0, value, done;
-            for (const firstValue of self) {
+            for (const first of self) {
                 if ({ done, value } = iterator.next(), !done) {
                     yield selector(first, value, idx++);
                 } else {
@@ -524,7 +417,7 @@ class Enumerable {
         if (!accumulator) {
             const iterator = this[Symbol.iterator]();
             seed = iterator.next().value;
-            target = new this.constructor(function* () {
+            target = new this.constructor[Symbol.species](function* () {
                 let done, value;
                 while ({done, value} = iterator.next(), !done) {
                     yield value;
@@ -790,12 +683,7 @@ class OrderedEnumerable extends Enumerable {
     }
 }
 
-const Empty = Enumerable.from([]);
+const Empty = new Enumerable(function* () {});
 
-if (typeof define === 'function') {
-    define(() => Enumerable);
-} else if (typeof module === 'object' && module.exports) {
-    module.exports = Enumerable
-} else {
-    window.Enumerable = Enumerable;
-}
+module.exports.Enumerable = Enumerable;
+
