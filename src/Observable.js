@@ -82,6 +82,7 @@ class SubscriptionSet extends Subscription {
 
 const override = (observer, build) => Observer.override(observer, build(observer));
 const identity = o => o;
+const pair = (a, b) => [a, b];
 
 class Observable {
     constructor(subscribe) {
@@ -179,7 +180,7 @@ class Observable {
                         next(element);
                     }
                 }
-            })))
+            })));
         }));
     }
 
@@ -187,7 +188,76 @@ class Observable {
         return this.merge(other).distinct(keySelector);
     }
 
-    
+    intersect(other, keySelector = identity) {
+        return new Observable(init => {
+            const seenHere = new Set();
+            const seenThere = new Set();
+            return this.where(value => {
+                const key = keySelector(value);
+                if (seenHere.has(value)) {
+                    return false;
+                } else {
+                    seenHere.add(value);
+                    return seenThere.has(value);
+                }
+            }).merge(other.where(value => {
+                const key = keySelector(value);
+                if (seenThere.has(value)) {
+                    return false;
+                } else {
+                    seenThere.add(value);
+                    return seenHere.has(value);
+                }
+            })).subscribe(init);
+        });
+    }
+
+    takeWhile(predicate) {
+        return new Observable(init => this.subscribe(subscription => override(init(subscription), ({ next, complete }) => ({
+            next: value => {
+                if (predicate(value)) {
+                    next(value)
+                } else {
+                    subscription.cancel();
+                    complete();
+                }
+            }
+        }))));
+    }
+
+    take(count) {
+        return new Observable(init => {
+            let i = 0;
+            return this.takeWhile(() => i++ < count).subscribe(init);
+        });
+    }
+
+    skipWhile(predicate) {
+        return new Observable(init => this.subscribe(subscription => override(init(subscription, ({ next }) => {
+            let proxy = value => {
+                if (!predicate(value)) {
+                    proxy = next;
+                    next(value);
+                }
+            };
+            return { next: value => proxy(value) };
+        }))));
+    }
+
+    skip(count) {
+        return new Observable(init => {
+            let i = 0;
+            return this.skipWhile(() => i++ < count).subscribe(init);
+        });
+    }
+
+    groupJoin(inner, outerKeySelector, innerKeySelector, resultSelector = pair) {
+        return new Observable(init => {
+            const observers = [];
+        });
+    }
+
+
 
     static from(enumerable) {
         return new Observable(init => {
@@ -209,3 +279,4 @@ class Observable {
         });
     }
 }
+
