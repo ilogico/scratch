@@ -17,13 +17,16 @@ class Enumerable {
      * The constructor is meant to be called internally or by sub-classes.
      * However it's reasonable to call it with a generator function, or any function that returns an iterator.
      * @protected
-     * @param {function(): IterableIterator} iterator 
+     * @param {function(): Iterator} iterator 
      */
     constructor(iterator) {
         this[Symbol.iterator] = iterator;
     }
 
-    *[Symbol.iterator]() {}
+    /**
+     * @returns {Iterator}
+     */
+    * [Symbol.iterator]() {}
 
     /**
      * Returns a new Enumerable with the element appended.
@@ -134,7 +137,10 @@ class Enumerable {
             let i = count, done, value;
             const iterator = self[Symbol.iterator]();
             while (i-- > 0 && ({ done, value } = iterator.next(), !done));
-            yield* iterator;
+            while(({ done, value } = iterator.next(), !done)) {
+                yield value;
+            }
+            return value;
         });
     }
 
@@ -149,10 +155,11 @@ class Enumerable {
             let i = 0, done, value;
             const iterator = self[Symbol.iterator]();
             while ({ done, value } = iterator.next(), !done && predicate(value, i++));
-            if (!done) {
+            while (!done) {
                 yield value;
-                yield* iterator;
+                ({ done, value } = iterator.next()); 
             }
+            return value;
         });
     }
 
@@ -239,23 +246,17 @@ class Enumerable {
     }
 
     /**
-     * Returns an Enumerable that yields the elements of this Enumerable that aren't contained in the other Iterable.
+     * Returns an Enumerable that yields the elements of this Enumerable whose keys aren't contained in the other Iterable.
      * This means the second Enumerable must be completely traversed before the first element is yielded.
-     * If the comparer is not provided, a Set is build from the second Enumerable. Sets use Object.is to compare values.
      * @param {Iterable} other 
-     * @param {EqualityComparer} [comparer] 
+     * @param {function(any): any} [select] 
      * @returns {Enumerable}
      */
-    except(other, comparer = undefined) {
+    except(other, keySelect = identity) {
         const self = this;
-        return new Enumerable(comparer
-            ? function* () {
-                const array = [...other];
-                yield* self.where(value => array.findIndex(v => comparer(v, value)) < 0);
-            }
-            : function* () {
+        return new Enumerable(function* () {
                 const set = new Set(other);
-                yield* self.where(value => !set.has(value));
+                yield* self.where(value => !set.has(keySelect(value)));
             });
     }
 
@@ -265,9 +266,9 @@ class Enumerable {
      * The elementSelector is used to project the elements before grouping. The identity function is used if this function is not provided.
      * The resultSelector will receive the key as its first parameter and an Enumerable that yiels the elements of the group as the second argument.
      * If the resultSelector is not provided, a [key, group] pair will be yielded for each group. This follows the convention of Map.
-     * @param {Selector} keySelector 
-     * @param {Selector} [elementSelector=identity] 
-     * @param {PairSelector} [resultSelector=pair] 
+     * @param {function(any): any} keySelector 
+     * @param {function(any, number): any} [elementSelector=identity] 
+     * @param {function(any, any): any} [resultSelector=pair] 
      * @returns {Enumerable}
      */
     groupBy(keySelector, elementSelector = identity, resultSelector = pair) {
@@ -276,7 +277,7 @@ class Enumerable {
             const map = new Map();
             let i = 0;
             for (const value of self) {
-                const key = keySelector(value, i);
+                const key = keySelector(value);
                 let array;
                 if (map.has(key)) {
                     array = map.get(key);
@@ -287,7 +288,7 @@ class Enumerable {
                 array.push(elementSelector(value, i++));
             }
             for (const [key, value] of map) {
-                yield resultSelector(key, self.constructor.from(value));
+                yield resultSelector(key, Enumerable.from(value));
             }
         });
     }
@@ -298,17 +299,16 @@ class Enumerable {
      * The element is then combined with the group using the resultSelector.
      * The resultSelector will receive the element as its first argument, an Enumerable that yields the elements of the group as the second argument, and the key as the the third argument.
      * @param {Iterable} inner 
-     * @param {Selector} outerKeySelector 
-     * @param {Selector} [innerKeySelector=outerKeySelector] 
-     * @param {Reducer} [resultSelector=pair]
+     * @param {function(any): any} outerKeySelector 
+     * @param {function(any): any} [innerKeySelector=outerKeySelector] 
+     * @param {function(any, any, any): any} [resultSelector=pair]
      */
     groupJoin(inner, outerKeySelector, innerKeySelector = outerKeySelector, resultSelector = pair) {
         const self = this;
         return new Enumerable(function* () {
             const map = new Map();
-            let i = 0;
             for (const value of inner) {
-                const key = outerKeySelector(value, i++);
+                const key = outerKeySelector(value);
                 let array;
                 if (map.has(key)) {
                     array = map.get(key);
@@ -319,33 +319,25 @@ class Enumerable {
                 array.push(value);
             }
 
-            const constructor = self.constructor;
             for (const value of self) {
-                const key = outerKeySelector(value, i);
-                yield resultSelector(value, map.has(key) ? constructor.from(map.get(key)) : constructor.empty(), key);
+                const key = outerKeySelector(value);
+                yield resultSelector(value, map.has(key) ? Enumerable.from(map.get(key)) : Enumerable.empty(), key);
 
             }
         });
     }
 
     /**
-     * Returns an Enumerable that yields the elements of this Enumerable that also exist in the other Iterable.
-     * The comparer, if supplied, will be used to determine if the elements are equal.
-     * Otherwise, a Set will be created internally from the other Enumerable.
+     * Returns an Enumerable that yields the elements of this Enumerable whose keys exist in the other Iterable.
      * @param {Iterable} other 
-     * @param {EqualityComparer} [comparer] 
+     * @param {function(any): any} [keySelect] 
      * @returns {Enumerable}
      */
-    intersect(other, comparer = undefined) {
+    intersect(other, keySelect = identity) {
         const self = this;
-        return new Enumerable(comparer
-            ? function* () {
-                const array = [...other];
-                yield* self.where(value => array.findIndexOf(comparer) >= 0);
-            }
-            : function* () {
+        return new Enumerable(function* () {
                 const set = new Set(other);
-                yield* self.where(value => set.has(value));
+                yield* self.where(value => set.has(keySelect(value)));
             });
     }
 
@@ -353,9 +345,9 @@ class Enumerable {
      * Returns an Enumerable that, for each element 'inner' of this Enumerable, for each element 'outer' of the other Iterable where outerKeySelector(outer) equals innerKeySelector(inner), yields a value produced by resultSelector(outer, inner).
      * In other words, this produces a Left Inner Join.
      * @param {Iterable} inner 
-     * @param {Selector} outerKeySelector 
-     * @param {Selector} [innerKeySelector=outerKeySelector] 
-     * @param {PairSelector} [resultSelector=pair] 
+     * @param {function(any): any} outerKeySelector 
+     * @param {function(any): any} [innerKeySelector=outerKeySelector] 
+     * @param {function(any, any): any} [resultSelector=pair] 
      * @returns {Enumerable}
      */
     join(inner, outerKeySelector, innerKeySelector = outerKeySelector, resultSelector = pair) {
@@ -381,8 +373,8 @@ class Enumerable {
      * Returns an {@link OrderedEnumerable} that yields the elements of this Enumerable ordered by the key selected by keySelector.
      * A custom comparer can be supplied.
      * The custom comparer should be supplied whenever the keys selected by keySelector or not numbers or strings, since no other JavaScript values produce useful results when compared with > and <.
-     * @param {Selector} keySelector 
-     * @param {Comparer} [comparer=defaultComparer] 
+     * @param {function(any): any} keySelector 
+     * @param {function(any, any): number} [comparer=defaultComparer] 
      * @returns {OrderedEnumerable}
      */
     orderBy(keySelector, comparer = defaultComparer) {
@@ -391,9 +383,9 @@ class Enumerable {
 
     /**
      * Like {@link Enumerable#orderBy orderBy} but with the result of the comparisons reversed.
-     * @param {Selector} keySelector 
-     * @param {Comparer} [comparer=defaultComparer]
-     * @returns {OrededEnumerable}
+     * @param {function(any): any} keySelector 
+     * @param {function(any, any): number} [comparer=defaultComparer]
+     * @returns {OrderedEnumerable}
      */
     orderByDescending(keySelector, comparer = defaultComparer) {
         return this.orderBy(keySelector, (a, b) => comparer(b, a));
@@ -408,7 +400,7 @@ class Enumerable {
      * The first argument is optional to mimic C#.
      * It's recommended to always supply the seed.
      * @param {any} [seed] 
-     * @param {Reducer} accumulator 
+     * @param {function(any, any, number): any} accumulator 
      * @returns {any} 
      */
     aggregate(seed, accumulator) {
@@ -434,7 +426,7 @@ class Enumerable {
     /**
      * Returns true if all the elements yielded by this Enumerable pass the predicate (this also happens when this Enumerable yields no elements).
      * Returns false otherwise.
-     * @param {Predicate} predicate
+     * @param {function(any, number): any} predicate
      * @returns {boolean}
      */
     all(predicate) {
@@ -451,12 +443,12 @@ class Enumerable {
      * Returns true if at least one element yielded by this Enumerable pass the predicate.
      * If the predicate is not supplied, returns true if the collection has at least one element (as if the predicate were always true).
      * Returns false otherwise.
-     * @param {Predicate} predicate 
+     * @param {function(any, number): any} predicate 
      * @returns {boolean}
      */
     any(predicate = undefined) {
         if (!predicate) {
-            return !this[Symbol.iterator]().done;
+            return !this[Symbol.iterator]().next().done;
         }
         let i = 0;
         for (const value of this) {
@@ -470,7 +462,7 @@ class Enumerable {
     /**
      * Assuming the collection contains numbers, returns the average of those numbers.
      * As a convenience, this method accepts a selector as an argument which is equivalent to select(selector).average();
-     * @param {Selector} selector A selector that returns a number
+     * @param {function(any, number): any} selector A selector that returns a number
      */
     average(selector = undefined) {
         const target = selector ? this.select(selector) : this;
@@ -486,7 +478,7 @@ class Enumerable {
      * Returns true if this Enumerable yields an element equal to the first argument.
      * A custom comparer can be passed as the second argument. Object.is will be used otherwise.
      * @param {any} element 
-     * @param {Equality} [comparer] 
+     * @param {function(any, any): any} [comparer] 
      * @returns {boolean}
      */
     contains(element, comparer = Object.is) {
@@ -496,7 +488,7 @@ class Enumerable {
     /**
      * Returns the number of elements yielded by this Enumerable.
      * If a predicate is given, the count will represent the number of elements for which the predicate returned true.
-     * @param {Predicate} [predicate]
+     * @param {function(any, number): any} [predicate]
      * @returns {number}
      */
     count(predicate = undefined) {
@@ -521,17 +513,17 @@ class Enumerable {
     /**
      * Returns the first element yielded by this Enumerable, or undefined, it it's empty.
      * If a predicate is given, it returns the first element for which the predicates succeeds, which the same as where(predicate).first();
-     * @param {Predicate} [predicate]
+     * @param {function(any, number): any} [predicate]
      * @returns {any}
      */
     first(predicate = undefined) {
-        return (predicate ? this.where(predicate) : this)[Symbol.iterator]().value;
+        return (predicate ? this.where(predicate) : this)[Symbol.iterator]().next().value;
     }
 
     /**
      * Returns the last element yielded by this Enumerable, or undefined, it it's empty.
      * If a predicate is given, it returns the last element for which the predicates succeeds, which the same as where(predicate).last();
-     * @param {Predicate} predicate 
+     * @param {function(any, number): any} predicate 
      */
     last(predicate = undefined) {
         const target = predicate ? this.where(predicate) : this;
@@ -543,7 +535,7 @@ class Enumerable {
     /**
      * Assuming this Enumerable yields numbers, max will return the larger of them.
      * A selector that projects the elements of this Enumerable to elements can supplied as a convenience. It's equivalent to select(selector).max()
-     * @param {Selector} [selector] A selector that maps elements yielded by this Enumerable to numbers.
+     * @param {function(any, number): any} [selector] A selector that maps elements yielded by this Enumerable to numbers.
      * @returns {number}
      */
     max(selector = undefined) {
@@ -553,7 +545,7 @@ class Enumerable {
     /**
      * Assuming this Enumerable yields numbers, max will return the smallest of them.
      * A selector that projects the elements of this Enumerable to elements can supplied as a convenience. It's equivalent to select(selector).min()
-     * @param {Selector} [selector] A selector that maps elements yielded by this Enumerable to numbers.
+     * @param {function(any, number): any} [selector] A selector that maps elements yielded by this Enumerable to numbers.
      * @returns {number}
      */
     min(selector = undefined) {
@@ -563,14 +555,14 @@ class Enumerable {
     /**
      * Returns the only element yielded by this Enumerable, or undefined if 0 or more than 1 elements are yielded.
      * The elements will be previously filtered with the given predicate, if supplied.
-     * @param {Predicate} predicate 
+     * @param {function(any, number): any} predicate 
      * @returns {any}
      */
     single(predicate = undefined) {
         const target = predicate ? this.where(predicate) : this;
         const iterator = target[Symbol.iterator]();
         const value = iterator.next().value;
-        return terator.next().done ? value : undefined;
+        return iterator.next().done ? value : undefined;
     }
 
     /**
@@ -584,11 +576,11 @@ class Enumerable {
 
     /**
      * Construct a map using a function to derive a key and a function to derive the element form the elements yielded by this Enumerable.
-     * @param {Selector} keySelector 
-     * @param {PairSelector} elementSelector 
+     * @param {function(any, number): any} keySelector 
+     * @param {function(any, number): any} elementSelector 
      */
     toMap(keySelector, elementSelector) {
-        return new Map(this.select(keySelector).zip(this.select(elementSelector)));
+        return new Map(this.select((value, index) => [keySelector(value, index), elementSelector(value, index)]));
     }
 
     get [Symbol.toStringTag]() {
@@ -651,6 +643,10 @@ class Enumerable {
             }
         });
     }
+
+    static get [Symbol.species]() {
+        return this;
+    }
 }
 
 /**
@@ -681,9 +677,13 @@ class OrderedEnumerable extends Enumerable {
     thenByDescending(keySelector, comparer = defaultComparer) {
         return this.thenBy(keySelector, (a, b) => comparer(b, a));
     }
+
+    static get [Symbol.species]() {
+        return Enumerable;
+    }
 }
 
 const Empty = new Enumerable(function* () {});
 
 module.exports.Enumerable = Enumerable;
-
+module.exports.from = iterable => Enumerable.from.bind(Enumerable);

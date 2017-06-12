@@ -1,10 +1,12 @@
 {
+    "exclude": [
+        "node_modules"
+    ],
     "compilerOptions": {
         "checkJs": true,
         "target": "esnext",
         "alwaysStrict": true,
         "module": "commonjs",
-        "sourceRoot": "src",
-        "strictNullChecks": true
+        "sourceRoot": "src"
     }
 }
