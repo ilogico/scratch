@@ -4,6 +4,7 @@
 const pair = (first, second) => [first, second];
 
 const identity = value => value;
+const defaultGrouper = (key, values) => [key, [...values]];
 
 /**
  * Base class containing the combinator methods.
@@ -110,7 +111,7 @@ class Enumerable {
      * @param {function(any, any): any} resultSelector 
      * @returns {Enumerable}
      */
-    selectMany(selector, resultSelector = undefined) {
+    selectMany(selector = identity, resultSelector = undefined) {
         const target = resultSelector
             ? this.select(function* (item, idx) {
                 for (const value of selector(item, idx)) {
@@ -173,7 +174,7 @@ class Enumerable {
         return new Enumerable(function* () {
             let i = count, done, value;
             const iterator = self[Symbol.iterator]();
-            while (i > 0 && ({ done, value } = iterator.next(), !done)) {
+            while (i-- > 0 && ({ done, value } = iterator.next(), !done)) {
                 yield value;
             }
         });
@@ -263,15 +264,14 @@ class Enumerable {
     /**
      * Returns an Enumerable that yields groups of elements of this Enumerable.
      * The keySelector is used to generate a key for each element.
-     * The elementSelector is used to project the elements before grouping. The identity function is used if this function is not provided.
-     * The resultSelector will receive the key as its first parameter and an Enumerable that yiels the elements of the group as the second argument.
-     * If the resultSelector is not provided, a [key, group] pair will be yielded for each group. This follows the convention of Map.
+     * The optional elementSelector is used to project the elements before grouping.
+     * The groups are constructed in the form [key, [...values]]
      * @param {function(any): any} keySelector 
      * @param {function(any, number): any} [elementSelector=identity] 
      * @param {function(any, any): any} [resultSelector=pair] 
      * @returns {Enumerable}
      */
-    groupBy(keySelector, elementSelector = identity, resultSelector = pair) {
+    groupBy(keySelector, elementSelector = identity) {
         const self = this;
         return new Enumerable(function* () {
             const map = new Map();
@@ -287,9 +287,7 @@ class Enumerable {
                 }
                 array.push(elementSelector(value, i++));
             }
-            for (const [key, value] of map) {
-                yield resultSelector(key, Enumerable.from(value));
-            }
+            yield* map;
         });
     }
 
@@ -301,14 +299,14 @@ class Enumerable {
      * @param {Iterable} inner 
      * @param {function(any): any} outerKeySelector 
      * @param {function(any): any} [innerKeySelector=outerKeySelector] 
-     * @param {function(any, any, any): any} [resultSelector=pair]
+     * @param {function(any, Enumerable, any): any} [resultSelector=pair]
      */
-    groupJoin(inner, outerKeySelector, innerKeySelector = outerKeySelector, resultSelector = pair) {
+    groupJoin(inner, outerKeySelector, innerKeySelector = outerKeySelector, resultSelector = defaultGrouper) {
         const self = this;
         return new Enumerable(function* () {
             const map = new Map();
             for (const value of inner) {
-                const key = outerKeySelector(value);
+                const key = innerKeySelector(value);
                 let array;
                 if (map.has(key)) {
                     array = map.get(key);
@@ -337,7 +335,7 @@ class Enumerable {
         const self = this;
         return new Enumerable(function* () {
                 const set = new Set(other);
-                yield* self.where(value => set.has(keySelect(value)));
+                yield* self.where(value => set.has(keySelect(value))).distinct(keySelect);
             });
     }
 
@@ -351,8 +349,8 @@ class Enumerable {
      * @returns {Enumerable}
      */
     join(inner, outerKeySelector, innerKeySelector = outerKeySelector, resultSelector = pair) {
-        return this.groupJoin(inner, innerKeySelector, outerKeySelector)
-            .selectMany(([i, os]) => os.select(o => resultSelector(i, o)));
+        return this.groupJoin(inner, outerKeySelector, innerKeySelector, identity)
+            .selectMany(([o, is]) => is.select(i => resultSelector(o, i)));
     }
 
     /**

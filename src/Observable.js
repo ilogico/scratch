@@ -141,7 +141,7 @@ class Observable {
         }));
     }
 
-    selectMany(selector, resultSelector = undefined) {
+    selectMany(selector = identity, resultSelector = undefined) {
         const target = resultSelector
             ? this.select(source => selector(source).select(element => resultSelector(source, element)))
             : this.select(selector);

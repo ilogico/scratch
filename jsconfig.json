@@ -1,6 +1,7 @@
 {
     "exclude": [
-        "node_modules"
+        "node_modules",
+        "coverage"
     ],
     "compilerOptions": {
         "checkJs": true,
