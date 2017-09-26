@@ -254,7 +254,7 @@ describe("intersect", () => {
 describe("join", () => {
     it("performs an inner join", () => {
         const e = Enumerable.from([1, 2, 3])
-            .join([2, 3, 4], v => v);console.log([...e])
+            .join([2, 3, 4], v => v);
         expect([...e])
             .toEqual([
                 [2, 2],
